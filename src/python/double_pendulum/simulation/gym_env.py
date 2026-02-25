@@ -88,6 +88,28 @@ class ClippingVelocityScaler(VelocityScaler):
         return velocity * self.max_velocity
 
 
+class TanhVelocityScaler(VelocityScaler):
+    """Normalizes velocity from [-inf,inf] -> [-1,1].
+
+    Normalization is done in two steps:
+    i) Determine velocity relative to max_velocity, e.g., max_velocity -> 1.
+    ii) Compress that value into [-1,1] using tanh.
+
+    This way, no clipping takes place.
+    """
+
+    def __init__(self, max_velocity: float):
+        self.max_velocity = max_velocity
+
+    def normalize(self, velocity: float) -> float:
+        relative_velocity = velocity / self.max_velocity
+        return np.tanh(relative_velocity)
+
+    def unscale(self, velocity: float) -> float:
+        relative_velocity = np.arctanh(velocity)
+        return relative_velocity * self.max_velocity
+
+
 class double_pendulum_dynamics_func:
     def __init__(
         self,
