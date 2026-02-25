@@ -1,5 +1,6 @@
 import gymnasium as gym
 import numpy as np
+from abc import ABC, abstractmethod
 import math
 
 
@@ -55,6 +56,38 @@ class CustomEnv(gym.Env):
         pass
 
 
+class VelocityScaler(ABC):
+    """Provides a function to normalize a velocity, e.g., into [-1,1] and its inverse (unscale).
+
+    Note that the normalization function might not be technically invertible, e.g., when clipping removes information.
+    """
+
+    @abstractmethod
+    def normalize(self, velocity: float) -> float:
+        """Normalizes (scales) a velocity, e.g., [-max_velocity,max_velocity] -> [-1,1]."""
+
+    @abstractmethod
+    def unscale(self, velocity: float) -> float:
+        """Unscales a normalized velocity, e.g., [-1,1] -> [-max_velocity,max_velocity]."""
+
+
+class ClippingVelocityScaler(VelocityScaler):
+    """Normalizes velocity from [-max_velocity,max_velocity] -> [-1,1].
+
+    Clips away any velocity outside [-max_velocity,max_velocity] on normalization.
+    """
+
+    def __init__(self, max_velocity: float):
+        self.max_velocity = max_velocity
+
+    def normalize(self, velocity: float) -> float:
+        velocity = np.clip(velocity, -self.max_velocity, self.max_velocity)
+        return velocity / self.max_velocity
+
+    def unscale(self, velocity: float) -> float:
+        return velocity * self.max_velocity
+
+
 class double_pendulum_dynamics_func:
     def __init__(
         self,
@@ -66,6 +99,7 @@ class double_pendulum_dynamics_func:
         max_velocity=20.0,
         torque_limit=[5.0, 5.0],
         scaling=True,
+        velocity_scaler=None, # None => ClippingVelocityScaler(max_velocity)
     ):
         self.simulator = simulator
         self.dt = dt
@@ -76,6 +110,9 @@ class double_pendulum_dynamics_func:
 
         self.torque_limit = torque_limit
         self.scaling = scaling
+        self.velocity_scaler = velocity_scaler
+        if self.velocity_scaler is None:
+            self.velocity_scaler = ClippingVelocityScaler(self.max_velocity)
 
     def __call__(self, state, action, scaling=True):
         if scaling:
@@ -130,17 +167,16 @@ class double_pendulum_dynamics_func:
                 [
                     observation[0] * np.pi + np.pi,
                     observation[1] * np.pi + np.pi,
-                    observation[2] * self.max_velocity,
-                    observation[3] * self.max_velocity,
-                ]
+                    self.velocity_scaler.unscale(observation[2]),
+                    self.velocity_scaler.unscale(observation[3]), ]
             )
         elif self.state_representation == 3:
             x = np.array(
                 [
                     np.arctan2(observation[0], observation[1]),
                     np.arctan2(observation[2], observation[3]),
-                    observation[4] * self.max_velocity,
-                    observation[5] * self.max_velocity,
+                    self.velocity_scaler.unscale(observation[4]),
+                    self.velocity_scaler.unscale(observation[5]),
                 ]
             )
         return x
@@ -155,10 +191,8 @@ class double_pendulum_dynamics_func:
                 [
                     (state[0] % (2 * np.pi) - np.pi) / np.pi,
                     (state[1] % (2 * np.pi) - np.pi) / np.pi,
-                    np.clip(state[2], -self.max_velocity, self.max_velocity)
-                    / self.max_velocity,
-                    np.clip(state[3], -self.max_velocity, self.max_velocity)
-                    / self.max_velocity,
+                    self.velocity_scaler.normalize(state[2]),
+                    self.velocity_scaler.normalize(state[3]),
                 ]
             )
         elif self.state_representation == 3:
@@ -168,10 +202,8 @@ class double_pendulum_dynamics_func:
                     np.sin(state[0]),
                     np.cos(state[1]),
                     np.sin(state[1]),
-                    np.clip(state[2], -self.max_velocity, self.max_velocity)
-                    / self.max_velocity,
-                    np.clip(state[3], -self.max_velocity, self.max_velocity)
-                    / self.max_velocity,
+                    self.velocity_scaler.normalize(state[2]),
+                    self.velocity_scaler.normalize(state[3]),
                 ]
             )
 
