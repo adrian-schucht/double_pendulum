@@ -1,9 +1,9 @@
+from typing import Callable, Any
+
 from abc import ABC, abstractmethod
-from collections import deque
 
 import gymnasium as gym
 import numpy as np
-
 
 class CustomEnv(gym.Env):
     def __init__(
@@ -20,18 +20,22 @@ class CustomEnv(gym.Env):
             np.array([-1.0, -1.0], dtype=np.float32),
             np.array([1.0, 1.0], dtype=np.float32),
         ),
-        obs_delay=0,
         max_episode_steps=1000,
         scaling=True,
+        dynamics_func_generator: Callable[[], Any] | None = None,
     ):
         self.dynamics_func = dynamics_func
+        if self.dynamics_func is None and dynamics_func_generator is not None:
+            self.dynamics_func = dynamics_func_generator()
+        self.dynamics_func_generator = dynamics_func_generator
+        # TODO: Document that this takes the previous action, and whether
+        #  scaled
         self.reward_func = reward_func
         self.terminated_func = terminated_func
         self.reset_func = reset_func
 
         self.observation_space = obs_space
         self.action_space = act_space
-        self.obs_queue = deque([self.reset_func()] * obs_delay)
         self.max_episode_steps = max_episode_steps
 
         self.observation = self.reset_func()
@@ -42,8 +46,6 @@ class CustomEnv(gym.Env):
         self.observation = self.dynamics_func(
             self.observation, action, scaling=self.scaling
         )
-        self.obs_queue.append(self.observation)
-        resulting_obs = self.obs_queue.popleft()
         reward = self.reward_func(self.observation, action)
         terminated = self.terminated_func(self.observation)
         info = {}
@@ -52,11 +54,13 @@ class CustomEnv(gym.Env):
         if self.step_counter >= self.max_episode_steps:
             truncated = True
             self.step_counter = 0
-        return resulting_obs, reward, terminated, truncated, info
+        return self.observation, reward, terminated, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.obs_queue = deque([self.reset_func()] * len(self.obs_queue))
+        if self.dynamics_func_generator is not None:
+            self.dynamics_func = self.dynamics_func_generator()
+        self.observation = self.reset_func()
         self.step_counter = 0
         info = {}
         return self.observation, info
@@ -130,7 +134,7 @@ class double_pendulum_dynamics_func:
         max_velocity=20.0,
         torque_limit=[5.0, 5.0],
         scaling=True,
-        velocity_scaler=None, # None => ClippingVelocityScaler(max_velocity)
+        velocity_scaler=None,  # None => ClippingVelocityScaler(max_velocity)
     ):
         self.simulator = simulator
         self.dt = dt
