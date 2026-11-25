@@ -182,10 +182,10 @@ class double_pendulum_dynamics_func:
         [-1, 1] -> [-limit, +limit]
         """
         if self.robot == "double_pendulum":
-            a = [
+            a = np.array([
                 float(self.torque_limit[0] * action[0]),
                 float(self.torque_limit[1] * action[1]),
-            ]
+            ])
         elif self.robot == "pendubot":
             a = np.array([float(self.torque_limit[0] * action[0]), 0.0])
         elif self.robot == "acrobot":
